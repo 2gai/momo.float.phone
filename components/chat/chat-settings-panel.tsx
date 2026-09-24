@@ -325,6 +325,7 @@ export function ChatSettingsPanel({
     const [backgroundImage, setBackgroundImage] = useState<string>(session.backgroundImage || "");
     const [alias, setAlias] = useState<string>(session.alias || "");
     const [characterRemarkForUser, setCharacterRemarkForUser] = useState<string>(session.characterRemarkForUser || "");
+    const [notifyAliasChange, setNotifyAliasChange] = useState(session.notifyCharacterOnAliasChange === true);
     const [refreshingCharacterRemark, setRefreshingCharacterRemark] = useState(false);
     const remarkRefreshTimerRef = useRef<number | null>(null);
     const [videoBackground, setVideoBackground] = useState<string>(session.videoBackground || "");
@@ -1022,6 +1023,19 @@ export function ChatSettingsPanel({
                         </div>
                     </button>
                     {!session.isGroup && (
+                        <div className="menu-item">
+                            <ChatInfoIcon icon={MessageSquare} color={CONTENT_APP_ACCENTS.chat} />
+                            <div className="menu-label-group">
+                                <span className="menu-label">更换备注后希望TA做出反应</span>
+                                <span className="menu-desc">默认关闭；开启后写入短期上下文并立即调角色 API</span>
+                            </div>
+                            <Toggle checked={notifyAliasChange} onChange={checked => {
+                                setNotifyAliasChange(checked);
+                                updateSession({ notifyCharacterOnAliasChange: checked });
+                            }} />
+                        </div>
+                    )}
+                    {!session.isGroup && (
                         <button className="menu-item" onClick={requestCharacterRemark} disabled={refreshingCharacterRemark}>
                             <ChatInfoIcon icon={UserPlus} color={BINDING_ACCENTS.preset} />
                             <div className="menu-label-group">
@@ -1680,7 +1694,7 @@ export function ChatSettingsPanel({
                                     const previousAlias = previousAliasValue || character?.name || "角色";
                                     const nextAlias = alias.trim();
                                     updateSession({ alias: nextAlias });
-                                    if (nextAlias !== previousAliasValue) {
+                                    if (nextAlias !== previousAliasValue && notifyAliasChange) {
                                         const userLabel = userIdentity?.name || "用户";
                                         const nextLabel = nextAlias || character?.name || "角色";
                                         pushChatMessage({

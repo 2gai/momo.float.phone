@@ -51,6 +51,8 @@ export type ChatSession = {
     characterRemarkForUser?: string;
     /** 角色给用户备注的最后更新时间。 */
     characterRemarkForUserUpdatedAt?: string;
+    /** 用户修改“给TA备注”后是否立即通知角色并触发回应；默认关闭。 */
+    notifyCharacterOnAliasChange?: boolean;
     autoReplied?: boolean; // Whether the initial greeting auto-reply has been triggered
     alias?: string;
     videoBackground?: string;
