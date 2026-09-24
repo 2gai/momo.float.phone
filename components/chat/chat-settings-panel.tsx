@@ -614,11 +614,13 @@ export function ChatSettingsPanel({
         if (notifyAvatarChange) {
             const occurredAt = new Date();
             const eventTime = occurredAt.toLocaleString("zh-CN", { hour12: false });
+            const userLabel = userIdentity?.name || "用户";
             pushChatMessage({
                 sessionId: session.id,
                 role: "system",
-                content: `私聊头像更新：时间：${eventTime}；${userIdentity?.name || "用户"}更换了当前私聊头像，并希望${character?.name || characterName}对此做出反应`,
                 mediaType: "system_instruction",
+                mediaData: { compactSystemInstruction: true, shortTermMemoryEvent: true },
+                content: `${userLabel}更换了头像\n<hidden-system>私聊头像更新：时间：${eventTime}；${userLabel}更换了当前私聊头像，并希望${character?.name || characterName}对此做出反应。这是需要保留的近期私聊事件。</hidden-system>`,
             });
             window.setTimeout(() => {
                 window.dispatchEvent(new CustomEvent(CHAT_REQUEST_REPLY_EVENT, { detail: { sessionId: session.id } }));
@@ -779,7 +781,8 @@ export function ChatSettingsPanel({
             sessionId: session.id,
             role: "system",
             mediaType: "system_instruction",
-            content: `备注请求：${userLabel}正在查看“${charLabel}给我的备注”。请结合你的人设、你们最近的聊天记录和当前关系，给${userLabel}设置一个不超过20字的私聊备注；自然回复后必须在末尾输出 [给用户备注:备注内容]`,
+            mediaData: { compactSystemInstruction: true, shortTermMemoryEvent: true },
+            content: `${userLabel}查看备注\n<hidden-system>私聊：时间：${new Date().toLocaleString("zh-CN", { hour12: false })}；${userLabel}正在查看${charLabel}给自己的备注。请结合你的人设、最近聊天记录和当前关系，给${userLabel}设置一个不超过20字的私聊备注；自然回复后必须在末尾输出 [给用户备注:备注内容]。</hidden-system>`,
         });
         window.setTimeout(() => {
             window.dispatchEvent(new CustomEvent(CHAT_REQUEST_REPLY_EVENT, { detail: { sessionId: session.id } }));
@@ -1701,7 +1704,8 @@ export function ChatSettingsPanel({
                                             sessionId: session.id,
                                             role: "system",
                                             mediaType: "system_instruction",
-                                            content: `私聊备注更新：${userLabel}把你的备注从“${previousAlias}”改成了“${nextLabel}”。请按人设自然回应这次更改。`,
+                                            mediaData: { compactSystemInstruction: true, shortTermMemoryEvent: true },
+                                            content: `${userLabel}修改了你的备注\n<hidden-system>私聊：时间：${new Date().toLocaleString("zh-CN", { hour12: false })}；${userLabel}把${character?.name || characterName}在私聊中的备注从“${previousAlias}”改成了“${nextLabel}”。这是需要保留的近期私聊事件，请按人设自然回应。</hidden-system>`,
                                         });
                                         window.setTimeout(() => {
                                             window.dispatchEvent(new CustomEvent(CHAT_REQUEST_REPLY_EVENT, { detail: { sessionId: session.id } }));

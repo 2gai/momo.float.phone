@@ -267,6 +267,10 @@ export type ChatMessage = {
         appHistoryRole?: ChatMessageRole;
         avatarRecommendationForCharacterId?: string;
         avatarRecommendationStatus?: "pending" | "accepted" | "declined";
+        /** 内部系统事件只在聊天流里显示一条小横条，不展示完整系统指令卡片。 */
+        compactSystemInstruction?: boolean;
+        /** 该内部系统事件需要作为私聊短期事件进入统一记忆时间线。 */
+        shortTermMemoryEvent?: boolean;
     };
     isTyping?: boolean; // temporary flag for UI rendering
     statusPanel?: string; // AI display-only status content from [状态栏] tags
@@ -556,6 +560,24 @@ export function isSystemInstructionMessage(msg: Pick<ChatMessage, "role" | "medi
     return msg.role === "system" && msg.mediaType === "system_instruction";
 }
 
+const HIDDEN_SYSTEM_INSTRUCTION_RE = /<hidden-system>([\s\S]*?)<\/hidden-system>/gi;
+
+/** 系统事件在聊天界面中可见的小横条文案；隐藏标签中的提示词绝不渲染。 */
+export function getSystemInstructionDisplayContent(content: string): string {
+    return content.replace(HIDDEN_SYSTEM_INSTRUCTION_RE, "").replace(/\n{2,}/g, "\n").trim();
+}
+
+/** 取出供角色与短期记忆读取的详细内容；有隐藏标签时不重复带上外层展示文案。 */
+export function getSystemInstructionPromptContent(content: string): string {
+    const hidden: string[] = [];
+    content.replace(HIDDEN_SYSTEM_INSTRUCTION_RE, (_full, body: string) => {
+        const normalized = body.trim();
+        if (normalized) hidden.push(normalized);
+        return "";
+    });
+    return hidden.length > 0 ? hidden.join("\n") : content.trim();
+}
+
 export function getChatMessagePreview(msg: ChatMessage): string {
     if (isReadingDiscussMessage(msg)) return "";
 
@@ -575,7 +597,8 @@ export function getChatMessagePreview(msg: ChatMessage): string {
         return "[记忆写入申请]";
     }
     if (isSystemInstructionMessage(msg)) {
-        const content = msg.content.trim();
+        const content = getSystemInstructionDisplayContent(msg.content);
+        if (msg.mediaData?.compactSystemInstruction) return content;
         return content ? `[系统指令] ${content}` : "[系统指令]";
     }
 
