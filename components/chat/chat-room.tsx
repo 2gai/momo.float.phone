@@ -2861,7 +2861,30 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
             ? getLatestStateValues(session.id)
             : getLatestCharacterStateValues(session.contactId);
 
-        const { parts: rawParts, stateValues, freshStateValues, statusPanel, innerMonologue } = parseAIResponse(aiResponseText, previousState);
+        const { parts: rawParts, stateValues, freshStateValues, statusPanel, innerMonologue, characterRemarkForUser } = parseAIResponse(aiResponseText, previousState);
+        if (!session.isGroup && characterRemarkForUser) {
+            const normalizedRemark = characterRemarkForUser.replace(/[\r\n]/g, " ").trim().slice(0, 20);
+            if (normalizedRemark) {
+                const updatedAt = new Date().toISOString();
+                const sessions = loadChatSessions();
+                const index = sessions.findIndex(item => item.id === session.id);
+                if (index >= 0) {
+                    sessions[index] = {
+                        ...sessions[index],
+                        characterRemarkForUser: normalizedRemark,
+                        characterRemarkForUserUpdatedAt: updatedAt,
+                    };
+                    saveChatSessions(sessions);
+                }
+                Object.assign(session, {
+                    characterRemarkForUser: normalizedRemark,
+                    characterRemarkForUserUpdatedAt: updatedAt,
+                });
+                window.dispatchEvent(new CustomEvent("chat-character-remark-updated", {
+                    detail: { sessionId: session.id, remark: normalizedRemark, updatedAt },
+                }));
+            }
+        }
         const parts = stripInvalidStickerParts(rawParts);
         throwIfGenerationStopped(options);
 
@@ -4114,13 +4137,16 @@ export function ChatRoom({ session, onBack, onDeleted }: ChatRoomProps) {
                 independentStory: false,
                 baseSession: mainSession,
             });
+            const acceptedReaction = invite.mediaData?.meetingInviteAcceptResponse?.trim();
+            const meetingDescription = invite.mediaData?.meetingInviteDescription?.trim();
+            const launchPrompt = `${characterName}在线上邀请${userIdentity?.name || "用户"}线下见面，用户已经同意。${meetingDescription ? `邀请说明：${meetingDescription}。` : ""}${acceptedReaction ? `${characterName}对此的反应是：${acceptedReaction}。` : ""}请由${characterName}根据刚才的私聊语境自然开启这次见面剧情。`;
             updateStorySession(storySession.id, {
-                autoStartPrompt: `${characterName}在线上邀请${userIdentity?.name || "用户"}线下见面，用户已经同意。请由${characterName}根据刚才的私聊语境自然开启这次见面剧情。`,
+                autoStartPrompt: launchPrompt,
                 autoStartRequestedAt: resolvedAt,
             });
             const nextStorySession = {
                 ...storySession,
-                autoStartPrompt: `${characterName}在线上邀请${userIdentity?.name || "用户"}线下见面，用户已经同意。请由${characterName}根据刚才的私聊语境自然开启这次见面剧情。`,
+                autoStartPrompt: launchPrompt,
                 autoStartRequestedAt: resolvedAt,
             };
             saveStoryLaunchTarget(nextStorySession);

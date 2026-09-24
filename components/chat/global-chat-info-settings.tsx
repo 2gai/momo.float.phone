@@ -266,7 +266,7 @@ export function GlobalChatInfoSettings({ onBack }: { onBack: () => void }) {
                     </div>
                     {draftMeetingInvite.mode === "custom" ? <>
                         <label className="ts-13 font-medium text-[var(--c-text-title)]">输出契约</label>
-                        <textarea className="ui-textarea font-mono ts-12" style={{ minHeight: 130, resize: "vertical" }} value={draftMeetingInvite.contract} onChange={event => setDraftMeetingInvite(current => ({ ...current, contract: event.target.value }))} placeholder="告诉 AI 何时发起邀请；固定标记由系统兜底" />
+                        <textarea className="ui-textarea font-mono ts-12" style={{ minHeight: 130, resize: "vertical" }} value={draftMeetingInvite.contract} onChange={event => setDraftMeetingInvite(current => ({ ...current, contract: event.target.value }))} placeholder="告诉 AI 何时发起邀请，并列出卡片要填写的 key=value 字段" />
                         <label className="ts-13 font-medium text-[var(--c-text-title)]">输出渲染</label>
                         <textarea className="ui-textarea font-mono ts-12" style={{ minHeight: 210, resize: "vertical" }} value={draftMeetingInvite.renderHtml} onChange={event => setDraftMeetingInvite(current => ({ ...current, renderHtml: event.target.value }))} placeholder="完整 HTML / CSS / JS；按钮使用 data-meeting-action=accept 或 decline" />
                         <div className="flex items-center justify-between gap-2">
