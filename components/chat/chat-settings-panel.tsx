@@ -42,7 +42,8 @@ import { triggerDeleteFriendReaction } from "@/lib/friend-request-engine";
 import { loadCharacters, saveCharacters } from "@/lib/character-storage";
 import { isAgentComputerConfigured } from "@/lib/agent-computer";
 import { CharacterComputerPage } from "./character-computer-page";
-import { resolveUserIdentity, loadBindingConfig, loadPresets, resolveBinding } from "@/lib/settings-storage";
+import { resolveUserIdentity, loadApiConfigs, loadBindingConfig, loadPresets, resolveBinding } from "@/lib/settings-storage";
+import { sendLLMRequest } from "@/lib/chat-engine";
 import { clearStatusRegionConfig, getStatusRegionConfig, hasOwnStatusRegionConfig, saveStatusRegionConfig, presetSupportsStatusRegion, isCustomStatusRegionActive, STATUS_REGION_SCHEME_TARGET, STATUS_REGION_UPDATED_EVENT, type StatusRegionConfig } from "@/lib/chat-status-region";
 import { downloadFile } from "@/lib/download-utils";
 import { createChatRecordExport, importChatRecordFile } from "@/lib/chat-record-transfer";
@@ -327,7 +328,6 @@ export function ChatSettingsPanel({
     const [characterRemarkForUser, setCharacterRemarkForUser] = useState<string>(session.characterRemarkForUser || "");
     const [notifyAliasChange, setNotifyAliasChange] = useState(session.notifyCharacterOnAliasChange === true);
     const [refreshingCharacterRemark, setRefreshingCharacterRemark] = useState(false);
-    const remarkRefreshTimerRef = useRef<number | null>(null);
     const [videoBackground, setVideoBackground] = useState<string>(session.videoBackground || "");
     const [voiceBackground, setVoiceBackground] = useState<string>(session.voiceBackground || "");
     const [isPinned, setIsPinned] = useState(session.isPinned || false);
@@ -756,38 +756,66 @@ export function ChatSettingsPanel({
         }
     };
 
-    useEffect(() => {
-        const handleRemarkUpdated = (event: Event) => {
-            const detail = (event as CustomEvent<{ sessionId?: string; remark?: string }>).detail;
-            if (detail?.sessionId !== session.id || typeof detail.remark !== "string") return;
-            setCharacterRemarkForUser(detail.remark);
-            setRefreshingCharacterRemark(false);
-            if (remarkRefreshTimerRef.current) window.clearTimeout(remarkRefreshTimerRef.current);
-            remarkRefreshTimerRef.current = null;
-        };
-        window.addEventListener("chat-character-remark-updated", handleRemarkUpdated);
-        return () => {
-            window.removeEventListener("chat-character-remark-updated", handleRemarkUpdated);
-            if (remarkRefreshTimerRef.current) window.clearTimeout(remarkRefreshTimerRef.current);
-        };
-    }, [session.id]);
-
-    const requestCharacterRemark = () => {
+    const requestCharacterRemark = async () => {
         if (refreshingCharacterRemark || session.isGroup) return;
         setRefreshingCharacterRemark(true);
-        const charLabel = character?.name || characterName;
-        const userLabel = userIdentity?.name || "用户";
-        pushChatMessage({
-            sessionId: session.id,
-            role: "system",
-            mediaType: "system_instruction",
-            mediaData: { compactSystemInstruction: true, shortTermMemoryEvent: true },
-            content: `${userLabel}查看备注\n<hidden-system>私聊：时间：${new Date().toLocaleString("zh-CN", { hour12: false })}；${userLabel}正在查看${charLabel}给自己的备注。请结合你的人设、最近聊天记录和当前关系，给${userLabel}设置一个不超过20字的私聊备注；自然回复后必须在末尾输出 [给用户备注:备注内容]。</hidden-system>`,
-        });
-        window.setTimeout(() => {
-            window.dispatchEvent(new CustomEvent(CHAT_REQUEST_REPLY_EVENT, { detail: { sessionId: session.id } }));
-        }, 0);
-        remarkRefreshTimerRef.current = window.setTimeout(() => setRefreshingCharacterRemark(false), 90_000);
+        try {
+            const charLabel = character?.name || characterName;
+            const userLabel = userIdentity?.name || "用户";
+            const slot = resolveBinding(loadBindingConfig(), session.contactId, "chat");
+            const config = loadApiConfigs().find(item => item.id === slot.apiConfigId);
+            if (!config) throw new Error(`请先给${charLabel}绑定聊天 API`);
+
+            const presets = loadPresets();
+            const preset = (slot.presetId ? presets.find(item => item.id === slot.presetId) : null)
+                ?? presets.find(item => item.builtIn)
+                ?? null;
+            const recentMessages = loadChatMessages(session.id)
+                .filter(msg => !msg.isRetracted && (msg.role === "user" || msg.role === "assistant"))
+                .slice(-30);
+            const historyMessages: Parameters<typeof sendLLMRequest>[2] = recentMessages.map(msg => ({
+                role: msg.role === "user" ? "user" : "assistant",
+                content: msg.content?.trim() || getChatMessagePreview(msg),
+            }));
+            const promptMessages: Parameters<typeof sendLLMRequest>[2] = [
+                {
+                    role: "system",
+                    content: `你是${charLabel}。\n\n【角色人设】\n${character?.persona?.trim() || "未填写"}`,
+                },
+                ...historyMessages,
+                {
+                    role: "user",
+                    content: `请结合你的人设、以上最近30条聊天记录和当前关系，给${userLabel}设置一个不超过20字的私聊备注。只输出备注内容，不要解释，不要模拟聊天，不要输出标签。`,
+                },
+            ];
+            const rawRemark = await sendLLMRequest(
+                config,
+                preset,
+                promptMessages,
+                [],
+                { characterName: charLabel, userName: userLabel },
+                { skipOutputRegex: true, appId: "chat-remark", debugSessionId: session.id },
+            );
+            const unwrappedRemark = rawRemark
+                .trim()
+                .replace(/^\[给用户备注[:：]\s*([\s\S]*?)\]$/, "$1")
+                .replace(/^[“\"']|[”\"']$/g, "")
+                .split(/\r?\n/, 1)[0]
+                .trim();
+            const nextRemark = Array.from(unwrappedRemark).slice(0, 20).join("");
+            if (!nextRemark) throw new Error("AI 没有生成有效备注，请重试");
+
+            const updatedAt = new Date().toISOString();
+            updateSession({
+                characterRemarkForUser: nextRemark,
+                characterRemarkForUserUpdatedAt: updatedAt,
+            });
+            setCharacterRemarkForUser(nextRemark);
+        } catch (error) {
+            alert(error instanceof Error ? error.message : "生成备注失败，请重试");
+        } finally {
+            setRefreshingCharacterRemark(false);
+        }
     };
 
     // 仿真拉黑：写成明确的私聊系统事件，直接进入该角色的短期记忆。
@@ -1705,7 +1733,7 @@ export function ChatSettingsPanel({
                                             role: "system",
                                             mediaType: "system_instruction",
                                             mediaData: { compactSystemInstruction: true, shortTermMemoryEvent: true },
-                                            content: `${userLabel}修改了你的备注\n<hidden-system>私聊：时间：${new Date().toLocaleString("zh-CN", { hour12: false })}；${userLabel}把${character?.name || characterName}在私聊中的备注从“${previousAlias}”改成了“${nextLabel}”。这是需要保留的近期私聊事件，请按人设自然回应。</hidden-system>`,
+                                            content: `${userLabel}修改了你的备注\n<hidden-system>私聊：时间：${new Date().toLocaleString("zh-CN", { hour12: false })}；${userLabel}把${character?.name || characterName}在私聊中的备注从“${previousAlias}”改成了“${nextLabel}”。</hidden-system>`,
                                         });
                                         window.setTimeout(() => {
                                             window.dispatchEvent(new CustomEvent(CHAT_REQUEST_REPLY_EVENT, { detail: { sessionId: session.id } }));
@@ -2132,3 +2160,4 @@ export function ChatSettingsPanel({
         </PageShell>
     );
 }
+
